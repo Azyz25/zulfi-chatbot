@@ -946,3 +946,19 @@ client.on('message_create', async msg => {
     // ignore
   }
 });
+
+const express = require('express');
+const app = express();
+
+// 2. استخدام المنفذ الذي يحدده Render (وهو الأهم)، أو 3000 كمنفذ احتياطي
+const PORT = process.env.PORT || 3000;
+
+// 3. إنشاء نقطة نهاية وهمية بسيطة (Endpoint) ليرسل لها UptimeRobot الزيارات
+app.get('/', (req, res) => {
+  res.send('WhatsApp Bot is running and kept awake!');
+});
+
+// 4. تشغيل الخادم للاستماع على المنفذ
+app.listen(PORT, () => {
+  console.log(`Web server running and listening on port ${PORT}`);
+});
