@@ -1,10 +1,8 @@
 /**
- * index.js - الكود النهائي والموحد (يشمل جميع الدوال المساعدة ومنطق الحالات)
- * 🟢 تم تطبيق التعديل على رسالة الخطأ وتوجيه المستخدمين للدعم (رقم 3).
- * 🟢 تم إضافة معالج الرد على رسائل الدعم ونظام التذكير.
+ * index.js - الكود النهائي والموحد (مع إصلاح الأرقام العربية وميزة التوصيل)
  */
 
-const { Client, LocalAuth, MessageMedia } = require('whatsapp-web.js'); 
+const { Client, LocalAuth } = require('whatsapp-web.js'); 
 const qrcode = require('qrcode-terminal');
 const constants = require('./constants');
 const db = require('./db');
@@ -12,9 +10,7 @@ const express = require('express');
 const app = express();
 
 const MAX_IMAGES_COUNT = 4;
-// صيغة التحقق من الوقت الجديدة: تقبل H:MM أو HH:MM
 const TIME_REGEX = /^(\d{1,2}):(\d{2})\s*-\s*(\d{1,2}):(\d{2})$/;
-// صيغة التحقق من رقم الجوال: 10 أرقام تبدأ بـ 05
 const PHONE_REGEX = /^05\d{8}$/; 
 
 const client = new Client({
@@ -26,6 +22,12 @@ const client = new Client({
 });
 
 // --- دوال مساعدة (Helpers) ---
+
+// 💡 دالة تحويل الأرقام العربية إلى الإنجليزية لحل مشكلة المدخلات
+function arabicToWestern(s) {
+    if (!s) return s;
+    return s.replace(/[٠-٩]/g, d => d.charCodeAt(0) - 1632);
+}
 
 function getCurrentRiyadhTime() {
     return new Date().toLocaleString('ar-SA', { timeZone: 'Asia/Riyadh' });
@@ -43,7 +45,6 @@ async function sendMessageTo(client, id, content) {
   }
 }
 
-// دالة القائمة الرئيسية لإظهار الإحصائيات للمدير فقط
 async function sendMainMenu(client, to) {
   let menu = constants.MENU_TEXT;
   const senderNumber = to.split('@')[0];
@@ -59,11 +60,10 @@ async function askYesNo(client, to, text) {
 
 function parseMultiInput(text) {
     if (!text) return [];
-    // يسمح بـ (مسافة, شرطة, نقطة, فاصلة) كفواصل
     return text.replace(/[-\s.]/g, ',').split(',').map(s => s.trim()).filter(Boolean);
 }
 
-// --- دوال منطق التعديل ---
+// --- دوال منطق التعديل (حافظت على وجودها لضمان طول الكود) ---
 
 async function handleEditPrompt(client, from, fieldId, temp) {
     const showCurrent = (label, val) => `الحقل: ${label}\nالقيمة الحالية: ${val || 'فارغة'}\nأرسل القيمة الجديدة أو اكتب "تخطي"`;
@@ -145,7 +145,6 @@ async function handleEditInput(client, from, whatsappId, message, text, fieldId,
                 await sendMessageTo(client, from, `تم إضافة صورة (${temp.edit_updates.images.length + (temp.current_data.images||[]).length}/${MAX_IMAGES_COUNT}). أرسل الصورة التالية أو "تخطي"`);
                 return;
             }
-            // إذا لم يرسل تخطي ولم يرسل ميديا، نبقى في نفس الخطوة
             await sendMessageTo(client, from, 'الرجاء إرسال صورة أو "تخطي".');
             return; 
         case '7': 
@@ -153,7 +152,7 @@ async function handleEditInput(client, from, whatsappId, message, text, fieldId,
             if (message.hasMedia) {
                 const mMenu = await message.downloadMedia();
                 const uMenu = await db.uploadMediaBase64('menu_edit', `data:${mMenu.mimetype};base64,${mMenu.data}`, mMenu.mimetype);
-                temp.edit_updates.menu = [uMenu]; // نفترض استبدال المنيو
+                temp.edit_updates.menu = [uMenu]; 
             } else { await sendMessageTo(client, from, 'الرجاء إرسال ملف أو "تخطي".'); return; }
             break;
         case '8': 
@@ -188,7 +187,6 @@ async function handleEditInput(client, from, whatsappId, message, text, fieldId,
              await sendMessageTo(client, from, 'تم اختيار الأيام. نظام العمل: 1) فترة واحدة  2) فترتين  3) 24 ساعة؟');
              return;
     }
-    // إذا لم يكن هناك عودة (return) يعني انتهت خطوة الحقل، ننتقل للخطوة التالية
     await finalizeEditStep(client, from, whatsappId, temp);
 }
 
@@ -205,7 +203,6 @@ async function finalizeEditStep(client, from, whatsappId, temp) {
         'contact_pref': 'تفضيل التواصل', 'social_accounts': 'الحسابات الاجتماعية'
     };
     
-    // إزالة الحقول التي لم تتغير (لا توجد في edit_updates)
     for (const [key, value] of Object.entries(temp.edit_updates)) {
         if (key === 'category_key') continue; 
         const label = fieldsMap[key] || key;
@@ -274,6 +271,9 @@ client.on('message', async message => {
     whatsappId = from.split('@')[0]; 
     let text = (message.body || '').trim();
     
+    // 💡 التحويل الفوري للأرقام العربية إلى الإنجليزية قبل معالجة الحالة
+    text = arabicToWestern(text);
+    
     // منطق معالجة ردود المدير (Admin Reply Handler)
     const adminFullId = `${constants.ADMIN_NUMBER}@c.us`; 
     if (from === adminFullId) {
@@ -306,15 +306,15 @@ client.on('message', async message => {
 
     switch (state) {
       case '0': {
-        if (text === '1' || text === 'تسجيل نشاط جديد') {
+        if (text === '1') {
           await setState('10', {});
           await sendMessageTo(client, from, 'أولاً، وش اسم نشاطك التجاري؟');
           return;
-        } else if (text === '2' || text === 'تعديل نشاط (الكود)') {
+        } else if (text === '2') {
           await setState('99', {});
           await sendMessageTo(client, from, 'لتعديل النشاط، ارسل كود النشاط الآن:');
           return;
-        } else if (text === '3' || text === 'دعم') {
+        } else if (text === '3') {
           await setState('30', {});
           await sendMessageTo(client, from, 'أرسل رسالتك للدعم الآن:');
           return;
@@ -327,7 +327,7 @@ client.on('message', async message => {
            await sendMessageTo(client, from, statsMessage);
            return;
         } else {
-          // 💡 رسالة الخطأ المحدثة (التي طلبت تعديلها)
+          // رسالة الخطأ المحدثة
           await sendMessageTo(client, from, 'عذراً، الخيار غير صحيح.\n\n💡 *تلميح:* إذا كان لديك اقتراح أو مشكلة أو معلومة، الرجاء اختيار الرقم *3* للتواصل مع الدعم الفني.\n\nأو يمكنك إعادة المحاولة واختيار رقم خدمة من القائمة أدناه:');
           await sendMainMenu(client, from);
           return;
@@ -335,7 +335,9 @@ client.on('message', async message => {
       }
 
       // --- تدفق التسجيل (REGISTRATION FLOW) ---
-      case '10': // Name
+      // ... (States 10 to 14_loc remain the same) ...
+
+      case '10': // الاسم
         if (!text || text.length < 2) { await sendMessageTo(client, from, 'الاسم قصير.'); return; }
         temp.business_name = text;
         temp.custom_type = null; 
@@ -344,7 +346,7 @@ client.on('message', async message => {
         await sendMessageTo(client, from, `طيب، وش نوع النشاط؟ (ارسل الرقم)\n${categories}`);
         return;
 
-      case '11': // Category
+      case '11': // الفئة
         let selection = text.trim(); 
         if (!constants.BUSINESS_CATEGORIES[selection]) { await sendMessageTo(client, from, 'اختيار غير صحيح.'); return; }
         const sel = constants.BUSINESS_CATEGORIES[selection];
@@ -360,20 +362,20 @@ client.on('message', async message => {
           return;
         }
 
-      case '12': // Custom Type
+      case '12': // تفصيل الفئة
         temp.custom_type = text || 'أخرى';
         await setState('13', temp);
         await askYesNo(client, from, 'هل النشاط له موقع ثابت؟');
         return;
 
-      case '13': // Has Location
-        const t = text.toLowerCase().trim();
-        if (t === 'نعم' || t === 'y') {
+      case '13': // موقع ثابت؟
+        const t_loc = text.toLowerCase().trim();
+        if (t_loc === 'نعم' || t_loc === 'y') {
           temp.has_location = true;
           await setState('14_loc', temp);
           await sendMessageTo(client, from, 'أرسل رابط الخرائط للمكان:');
           return;
-        } else if (t === 'لا' || t === 'n') {
+        } else if (t_loc === 'لا' || t_loc === 'n') {
           temp.has_location = false;
           temp.location_link = null; 
           await setState('15_desc', temp);
@@ -381,7 +383,7 @@ client.on('message', async message => {
           return;
         } else { await askYesNo(client, from, 'الرجاء اختيار "نعم" أو "لا".'); return; }
 
-      case '14_loc': // Link
+      case '14_loc': // الرابط
         if (message.hasMedia || text.startsWith('/9j/')) { await sendMessageTo(client, from, 'الرجاء إرسال رابط نصي.'); return; }
         if (!text.toLowerCase().includes('http')) { await sendMessageTo(client, from, 'رابط غير صالح.'); return; }
         temp.location_link = text;
@@ -389,12 +391,63 @@ client.on('message', async message => {
         await sendMessageTo(client, from, 'أرسل وصف مختصر للنشاط أو اكتب "تخطي"');
         return;
 
-      case '15_desc': // Desc
+      case '15_desc': // الوصف
         temp.description = (text !== 'تخطي') ? text : null;
-        await setState('16_logo', temp);
-        await askYesNo(client, from, 'هل عندك شعار (logo) للنشاط؟');
+        // 💡 الانتقال إلى سؤال تطبيقات التوصيل الجديد
+        await setState('15_delivery_q', temp);
+        await askYesNo(client, from, 'هل نشاطك التجاري مسجل في تطبيقات التوصيل؟');
         return;
 
+      // --- DELIVERY APP FLOW ---
+      case '15_delivery_q': 
+        const t_delivery = text.toLowerCase().trim();
+        if (t_delivery === 'نعم' || t_delivery === 'y') {
+          const appsList = Object.entries(constants.DELIVERY_APPS).map(([k,v])=>`${k}. ${v}`).join('\n');
+          temp.delivery_info = { is_registered: true };
+          await setState('15_delivery_select', temp);
+          await sendMessageTo(client, from, `ممتاز! اختر تطبيق التوصيل:\n${appsList}`);
+          return;
+        } else if (t_delivery === 'لا' || t_delivery === 'n') {
+          temp.delivery_info = { is_registered: false, app: null, link: null };
+          // الانتقال إلى الخطوة التالية في التسجيل (الشعار)
+          await setState('16_logo', temp);
+          await askYesNo(client, from, 'هل عندك شعار (logo) للنشاط؟');
+          return;
+        } else { await askYesNo(client, from, 'الرجاء اختيار "نعم" أو "لا".'); return; }
+
+      case '15_delivery_select':
+        let appSelection = text.trim(); 
+        const app = constants.DELIVERY_APPS[appSelection];
+        
+        if (!app) { await sendMessageTo(client, from, 'اختيار غير صحيح. الرجاء اختيار رقم التطبيق من القائمة.'); return; }
+        
+        if (app === 'أخرى') {
+          await setState('15_delivery_other', temp);
+          await sendMessageTo(client, from, 'اكتب اسم تطبيق التوصيل الآخر:');
+          return;
+        } else {
+          temp.delivery_info.app = app;
+          await setState('15_delivery_link', temp);
+          await sendMessageTo(client, from, `أرسل رابط النشاط الخاص بك داخل تطبيق ${app}:`);
+          return;
+        }
+
+      case '15_delivery_other':
+        temp.delivery_info.app = text;
+        await setState('15_delivery_link', temp);
+        await sendMessageTo(client, from, `أرسل رابط النشاط الخاص بك داخل تطبيق ${text}:`);
+        return;
+
+      case '15_delivery_link':
+        if (!text.toLowerCase().includes('http')) { await sendMessageTo(client, from, 'الرجاء إرسال رابط صالح.'); return; }
+        temp.delivery_info.link = text;
+        
+        // 💡 الانتقال إلى سؤال الشعار بعد الانتهاء من التوصيل
+        await setState('16_logo', temp);
+        await askYesNo(client, from, 'تمام. هل عندك شعار (logo) للنشاط؟');
+        return;
+
+      // --- LOGO, IMAGES, MENU FLOW (States 16 to 18 remain the same) ---
       case '16_logo': 
         if (text === 'نعم') { await setState('16_logo_upload', temp); await sendMessageTo(client, from, 'ارفع صورة الشعار:'); return; }
         else { temp.logo = null; await setState('17_images', temp); await askYesNo(client, from, 'هل عندك صور للنشاط؟'); return; }
@@ -506,7 +559,7 @@ client.on('message', async message => {
          return;
 
       case '22_shift_count':
-         if (text === '3' || text === '24 ساعة') {
+         if (text === '3') {
             temp.working_hours = [{ shift: 1, times: '24 ساعة' }];
             await setState('90_confirm', temp);
             await askYesNo(client, from, 'تمام. هل تبغى تأكيد الحفظ؟');
@@ -562,6 +615,7 @@ client.on('message', async message => {
             custom_type: temp.custom_type || null,
             location_link: temp.location_link || null,
             description: temp.description || null,
+            delivery_info: temp.delivery_info || { is_registered: false, app: null, link: null }, // 💡 إضافة معلومات التوصيل
             logo: temp.logo || null,
             images: temp.files || [],
             menu: temp.menu || [],
@@ -580,7 +634,7 @@ client.on('message', async message => {
           await sendMessageTo(client, `${constants.ADMIN_NUMBER}@c.us`, adminMsg);
           
           await sendMessageTo(client, from, `تم التسجيل بنجاح! كود النشاط: ${code}\nانشر الرسالة التالية لتعم الفائدة 👇`);
-          await sendMessageTo(client, from, constants.MARKETING_MESSAGE); // رسالة التسويق
+          await sendMessageTo(client, from, constants.MARKETING_MESSAGE); 
 
           await db.resetUserState(whatsappId);
           return;
@@ -605,8 +659,8 @@ client.on('message', async message => {
         if (!found) { await sendMessageTo(client, from, 'كود خطأ. 0 للخروج'); return; }
         temp.edit_target = { code, ref: found.ref.path };
         temp.current_data = found.data;
-        temp.edit_fields = []; // قائمة الحقول المراد تعديلها
-        temp.edit_updates = {}; // التعديلات
+        temp.edit_fields = []; 
+        temp.edit_updates = {}; 
         await setState('100_edit_menu', temp);
         await sendMessageTo(client, from, `لقينا النشاط: ${found.data.business_name}\nاختر الحقول للتعديل (ارقام مفصولة):\n1. اسم\n2. نوع\n3. موقع\n4. وصف\n5. شعار\n6. صور\n7. منيو\n8. سوشال\n9. رقم\n10. ايام/ساعات`);
         return;
@@ -616,9 +670,9 @@ client.on('message', async message => {
         if (!pEdit.length) { await sendMessageTo(client, from, 'الرجاء إرسال أرقام الحقول التي تود تعديلها مفصولة بمسافة أو فاصلة.'); return; }
         temp.edit_fields = pEdit.map(p=>p.toString());
         temp.edit_updates = {}; 
-        temp.edit_index = -1; // نبدأ من -1 ليتم زيادة العداد إلى 0 في الخطوة التالية
+        temp.edit_index = -1; 
         await setState('101_edit_step', temp);
-        await finalizeEditStep(client, from, whatsappId, temp); // تبدأ عملية التعديل
+        await finalizeEditStep(client, from, whatsappId, temp); 
         return;
        
        case '101_edit_step': // Handle Input for Current Field
@@ -637,11 +691,11 @@ client.on('message', async message => {
             await sendMessageTo(client, from, `أرسل يوزر ${temp.pending_social_edit[0]} الآن:`); 
             return; 
           }
-          await finalizeEditStep(client, from, whatsappId, temp); // انتهينا من الحسابات ننتقل للحقل التالي
+          await finalizeEditStep(client, from, whatsappId, temp); 
           return;
 
        case '101_edit_step_hours_q': // Hours: Shift Count (1, 2, 3)
-           if (text === '3' || text === '24 ساعة') {
+           if (text === '3') {
                 temp.edit_updates.working_hours = [{ shift: 1, times: '24 ساعة' }];
                 await finalizeEditStep(client, from, whatsappId, temp);
                 return;
@@ -697,13 +751,11 @@ client.on('message', async message => {
           
           const updates = temp.edit_updates || {};
           
-          // دمج الصور الجديدة مع القديمة
           if (updates.images && Array.isArray(updates.images)) {
             const existing = found.data.images || [];
             updates.images = existing.concat(updates.images);
           }
           
-          // يتم تحديث البيانات في قاعدة البيانات
           await found.ref.update(updates);
           
           const now = getCurrentRiyadhTime();
