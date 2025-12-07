@@ -1,15 +1,27 @@
-// init firebase admin
+// firebase.js
 const admin = require('firebase-admin');
-const path = require('path');
 
-const serviceAccountPath = path.join(__dirname, 'serviceAccountKey.json');
+// 💡 تم التعديل لقراءة مفتاح الخدمة من متغير البيئة GOOGLE_SERVICE_KEY
+const FIREBASE_SERVICE_ACCOUNT_KEY = process.env.GOOGLE_SERVICE_KEY;
 
-admin.initializeApp({
-  credential: admin.credential.cert(require(serviceAccountPath)),
-  storageBucket: 'appd-75fbf.appspot.com' // <-- عوّض هذا بمعرف مشروعك
-});
+// تأكد من أن متغير البيئة مضبوط
+if (!FIREBASE_SERVICE_ACCOUNT_KEY) {
+    throw new Error("GOOGLE_SERVICE_KEY environment variable is not set. Please ensure the full JSON content of your service account key is stored in this variable on Render.");
+}
+
+// قم بتحويل محتوى المتغير (النص JSON) إلى كائن JavaScript
+const serviceAccount = JSON.parse(FIREBASE_SERVICE_ACCOUNT_KEY);
+
+// تهيئة Firebase
+if (admin.apps.length === 0) {
+    admin.initializeApp({
+        credential: admin.credential.cert(serviceAccount),
+        // يتم تحديد مسار storageBucket بشكل ديناميكي
+        storageBucket: serviceAccount.project_id + '.appspot.com' 
+    });
+}
 
 const db = admin.firestore();
 const bucket = admin.storage().bucket();
 
-module.exports = { admin, db, bucket };
+module.exports = { db, bucket };
